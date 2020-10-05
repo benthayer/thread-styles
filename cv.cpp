@@ -11,6 +11,7 @@ mutex coutMutex;
 
 mutex workerReadyMutex;
 condition_variable workerReadyCondition;
+int numWorkers = 2;
 int numReady = 0;
 
 void readyUp(int i) {
@@ -18,7 +19,7 @@ void readyUp(int i) {
     numReady++;
     int r = numReady;
     coutMutex.lock();
-    cout << "We're ready: " << to_string(r) << "(" << to_string(i) << ")" << endl;
+    cout << "Ready: " << to_string(r) << " (thread " << to_string(i) << ")" << endl;
     coutMutex.unlock();
     workerReadyCondition.notify_all();
 }
@@ -46,83 +47,56 @@ void startWork() {
     unique_lock<mutex> lck(workerCountMutex);
     numWorking++;
 }
+
 void stopWork() {
     unique_lock<mutex> lck(workerCountMutex);
     numWorking--;
     workerCountCondition.notify_one();
 }
 
-void work1(int i) {
+void work(int i) {
     readyUp(i);
-    unique_lock<mutex> startLock(workerReadyMutex);
-    coutMutex.lock();
-    cout << "I guess I'm waiting" << endl;
-    coutMutex.unlock();
-    if (numReady != 2) {
-        coutMutex.lock();
-        cout << "Worker 1 blocked" << endl;
-        coutMutex.unlock();
-        workerReadyCondition.wait(startLock, [] { coutMutex.lock(); cout << "Checking from thread 1" << endl; coutMutex.unlock(); return numReady == 2;});
-        coutMutex.lock();
-        cout << "Worker 1 unblocked" << endl;
-        coutMutex.unlock();
-    }
-    startLock.unlock();
-    coutMutex.lock();
-    cout << "Time to work " << to_string(i) << endl;
-    coutMutex.unlock();
-    while (workIsAvailable()) {
-        startWork();
-        randomPause();
-        coutMutex.lock();
-        cout << "Locking with thread " << to_string(i) << endl;
-        coutMutex.unlock();
-        stopWork();
-    }
-}
 
-void work2(int i) {
-    readyUp(i);
     unique_lock<mutex> startLock(workerReadyMutex);
-    coutMutex.lock();
-    cout << "I guess I'm waiting" << endl;
-    coutMutex.unlock();
-    workerReadyCondition.wait(startLock, [] { coutMutex.lock(); cout << "Checking from thread 2" << endl; coutMutex.unlock(); return numReady == 2;});
+    workerReadyCondition.wait(startLock, [i] { coutMutex.lock(); cout << "Checking CV from thread " << to_string(i) << endl; coutMutex.unlock(); return numReady == numWorkers;});
     startLock.unlock();
+
     coutMutex.lock();
     cout << "Time to work " << to_string(i) << endl;
     coutMutex.unlock();
+
     while (workIsAvailable()) {
         startWork();
         randomPause();
         coutMutex.lock();
         cout << "Locking with thread " << to_string(i) << endl;
         coutMutex.unlock();
-        workerReadyCondition.notify_all();
         stopWork();
     }
 }
 
 
 int main() {
-    thread t1(work1, 1);
-    thread t2(work2, 2);
+    numWorkers = 3;
+    cout << "Starting " << to_string(numWorkers) << " threads" << endl;
+    thread *t = new thread[numWorkers];
+    for (int i = 0; i < numWorkers; i++) {
+        t[i] = thread(work, i);
+    }
 
     // Give workers a chance to start up
     unique_lock<mutex> startLock(workerReadyMutex);
-    workerReadyCondition.wait(startLock, [] {return numReady == 2;}); // Workers are notified too
-    startLock.unlock();
+    workerReadyCondition.wait(startLock, [] {return numReady == numWorkers;}); // Workers are notified too
 
     coutMutex.lock();
+    startLock.unlock();  // Other workers can start now, but we're the first to output
     cout << "Started" << endl;
     coutMutex.unlock();
-    // Alternatively, we could be the only thread waiting and
-    // then do some prep before we notify the other threads
 
-    // Work for a bit. Each will have a random loop
-    this_thread::sleep_for(chrono::seconds(1));
+    // Work for a bit. Every thread will complete at least one cycle
+    this_thread::sleep_for(chrono::milliseconds(150));
 
-    // Stop them, but don't join
+    // Tell threads to stop
     workMutex.lock();
     workAvailable = false;
     workMutex.unlock();
@@ -130,12 +104,12 @@ int main() {
     // How do we know when all of them have stopped?
     unique_lock<mutex> finishLock(workerCountMutex);
     workerCountCondition.wait(finishLock, [] {return numWorking == 0;});
-    finishLock.unlock();
-    coutMutex.lock();
-    cout << "Done" << endl;
-    coutMutex.unlock();
 
-    t1.join();
-    t2.join();
+    // Mutex no longer necessary
+    cout << "Done" << endl;
+
+    for (int i = 0; i < numWorkers; i++) {
+        t[i].join();
+    }
     return 0;
 }
