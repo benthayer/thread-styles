@@ -58,13 +58,18 @@ void work1(int i) {
     coutMutex.lock();
     cout << "I guess I'm waiting" << endl;
     coutMutex.unlock();
-    startLock.unlock();
-    this_thread::sleep_for(chrono::milliseconds(100));
-    startLock.lock();
-    workerReadyCondition.wait(startLock, [] { coutMutex.lock(); cout << "Checking from thread 1" << endl; coutMutex.unlock(); return numReady == 2;});
+    if (numReady != 2) {
+        coutMutex.lock();
+        cout << "Worker 1 blocked" << endl;
+        coutMutex.unlock();
+        workerReadyCondition.wait(startLock, [] { coutMutex.lock(); cout << "Checking from thread 1" << endl; coutMutex.unlock(); return numReady == 2;});
+        coutMutex.lock();
+        cout << "Worker 1 unblocked" << endl;
+        coutMutex.unlock();
+    }
     startLock.unlock();
     coutMutex.lock();
-    cout << "Time to work" << endl;
+    cout << "Time to work " << to_string(i) << endl;
     coutMutex.unlock();
     while (workIsAvailable()) {
         startWork();
@@ -85,7 +90,7 @@ void work2(int i) {
     workerReadyCondition.wait(startLock, [] { coutMutex.lock(); cout << "Checking from thread 2" << endl; coutMutex.unlock(); return numReady == 2;});
     startLock.unlock();
     coutMutex.lock();
-    cout << "Time to work" << to_string(i) << endl;
+    cout << "Time to work " << to_string(i) << endl;
     coutMutex.unlock();
     while (workIsAvailable()) {
         startWork();
@@ -93,6 +98,7 @@ void work2(int i) {
         coutMutex.lock();
         cout << "Locking with thread " << to_string(i) << endl;
         coutMutex.unlock();
+        workerReadyCondition.notify_all();
         stopWork();
     }
 }
@@ -103,8 +109,9 @@ int main() {
     thread t2(work2, 2);
 
     // Give workers a chance to start up
-    unique_lock<mutex> startLock(workerReadyMutex, defer_lock);
+    unique_lock<mutex> startLock(workerReadyMutex);
     workerReadyCondition.wait(startLock, [] {return numReady == 2;}); // Workers are notified too
+    startLock.unlock();
 
     coutMutex.lock();
     cout << "Started" << endl;
