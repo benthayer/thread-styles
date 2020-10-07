@@ -5,13 +5,6 @@
 
 using namespace std;
 
-/*
-1 job
-2 job_ready
-3 result
-4 result_ready
-*/
-
 struct Job {
     int a;
     int b;
@@ -32,8 +25,10 @@ int add(int a, int b) {
 }
 
 void submitJob(Job x) {
+    unique_lock<mutex> jobReadyLock(jobReadyMutex);
     job = x;
     jobReady = true;
+    jobReadyLock.unlock();
     jobReadyCondition.notify_all();
 }
 
@@ -50,8 +45,12 @@ void submitResult(int x) {
 
 
 int getResult() {
+    unique_lock<mutex> resultReadyLock(resultReadyMutex);
+    resultReadyCondition.wait(resultReadyLock, [] {return resultReady;});
     resultReady = false;
-    return result;
+    int temp = result;
+    resultReadyLock.unlock();
+    return temp;
 }
 
 void worker() {
@@ -72,14 +71,8 @@ int main () {
     thread t(worker);
     cout << "Hello" << endl;
 
-    unique_lock<mutex> jobReadyLock(jobReadyMutex);
     submitJob(Job{3,4});
-    jobReadyLock.unlock();
-
-    unique_lock<mutex> resultReadyLock(resultReadyMutex);
-    resultReadyCondition.wait(resultReadyLock, [] {return resultReady;});
     int i = getResult();
-    resultReadyLock.unlock();
 
     cout << "Result is " << to_string(i) << endl;
 
