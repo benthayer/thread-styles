@@ -5,6 +5,11 @@
 
 using namespace std;
 
+struct NoMoreJobsException : public exception {
+   const char * what () const throw () {
+      return "No more jobs!";
+   }
+};
 struct Job {
     int a;
     int b;
@@ -38,7 +43,7 @@ void waitForJob() {
     jobReadyCondition.wait(jobReadyLock, [] {return jobReady;});
 
     if (noMoreJobs) {
-        throw "No more jobs";
+        throw NoMoreJobsException();
     }
     jobReady = false;
 
@@ -67,7 +72,7 @@ void worker() {
     while (true) {
         try {
             waitForJob();
-        } catch (const char* msg) {
+        } catch (NoMoreJobsException& x) {
             break;
         }
         cout << "Got a job!" << endl;
