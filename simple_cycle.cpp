@@ -33,13 +33,19 @@ void submitJob(Job x) {
 }
 
 Job getJob() {
+    unique_lock<mutex> jobReadyLock(jobReadyMutex);
+    jobReadyCondition.wait(jobReadyLock, [] {return jobReady;});
     jobReady = false;
+    Job temp = job;
+    jobReadyLock.unlock();
     return job;
 }
 
 void submitResult(int x) {
+    unique_lock<mutex> resultReadyLock(resultReadyMutex);
     result = x;
     resultReady = true;
+    resultReadyLock.unlock();
     resultReadyCondition.notify_all();
 }
 
@@ -55,16 +61,9 @@ int getResult() {
 
 void worker() {
     cout << "Working!" << endl;
-    unique_lock<mutex> jobReadyLock(jobReadyMutex);
-    jobReadyCondition.wait(jobReadyLock, [] {return jobReady;});
     Job job = getJob();
-    jobReadyLock.unlock();
-
     int x = add(job.a, job.b);
-
-    unique_lock<mutex> resultReadyLock(resultReadyMutex);
     submitResult(x);
-    resultReadyLock.unlock();
 }
 
 int main () {
