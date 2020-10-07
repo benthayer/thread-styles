@@ -6,10 +6,12 @@
 
 using namespace std;
 
+mutex coutMutex;
+
 struct NoMoreJobsException : public exception {
-   const char * what () const throw () {
-      return "No more jobs!";
-   }
+    const char * what () const throw () {
+        return "No more jobs!";
+    }
 };
 
 struct Job {
@@ -17,6 +19,7 @@ struct Job {
     int b;
 };
 
+int numJobs = 0;
 bool noMoreJobs = false;
 mutex jobReadyMutex;
 condition_variable jobReadyCondition;
@@ -80,7 +83,9 @@ void worker(int i) {
         } catch (NoMoreJobsException& x) {
             break;
         }
+        coutMutex.lock();
         cout << "Got a job on thread " << to_string(i) << "!" << endl;
+        coutMutex.unlock();
         int x = add(jobArray[i].a, jobArray[i].b);
         submitResult(i, x);
     }
@@ -93,7 +98,9 @@ void setNoMoreJobs() {
         jobReadyArray[i] = true;
     }
     jobReadyCondition.notify_all();
+    coutMutex.lock();
     cout << "No more jobs" << endl;
+    coutMutex.unlock();
 }
 
 void startWorkers(int numWorkers) {
@@ -117,28 +124,41 @@ void stopWorkers() {
 }
 
 int currentJobNum = 0;
-vector<Job> jobQueue{Job{3,4}, Job{10,15}, Job{30, 20}, Job{1,2}};
+vector<Job> jobQueue{Job{3,4}, Job{10,15}, Job{30, 20}, Job{1,2}, Job{4,5}, Job{1, 0}, Job{2, 0}};
 
 bool jobsLeft () {
     return currentJobNum < jobQueue.size();
 }
 
 Job getNextJob () {
+    numJobs++;
     return jobQueue[currentJobNum++];
 }
 
 int main () {
-    int maxThreads = 2;
+    int maxThreads = 3;
     startWorkers(maxThreads);
+    coutMutex.lock();
     cout << "Hello" << endl;
+    coutMutex.unlock();
 
-    int threadNum = 0;
-    while (jobsLeft()) {
+    for (int i = 0; i < workers.size() && jobsLeft(); i++) {
         Job j = getNextJob();
-        setJob(threadNum, j);
+        setJob(i, j);
+    }
+
+    int resultNum = 0;
+    while (resultNum < numJobs) {
+        int threadNum = resultNum % workers.size();
         int result = getResult(threadNum);
+        coutMutex.lock();
         cout << "Result is " << to_string(result) << endl;
-        threadNum = (threadNum + 1) % maxThreads;
+        coutMutex.unlock();
+        if (jobsLeft()) {
+            Job j = getNextJob();
+            setJob(threadNum, j);
+        }
+        resultNum++;
     }
 
     stopWorkers();
